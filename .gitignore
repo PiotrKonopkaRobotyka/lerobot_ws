@@ -1,0 +1,11 @@
+# Katalogi ROS2 i colcon
+build/
+install/
+log/
+# Pliki pythona i środowiska
+__pycache__/
+*.pyc
+.vscode/
+# Wszelkie wirtualne środowiska (jeśli w przyszłości utworzysz wewnątrz)
+venv/
+.env/
