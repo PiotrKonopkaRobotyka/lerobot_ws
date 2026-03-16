@@ -9,3 +9,6 @@ __pycache__/
 # Wszelkie wirtualne środowiska (jeśli w przyszłości utworzysz wewnątrz)
 venv/
 .env/
+#YOLO
+yolo26m-pose.pt
+
