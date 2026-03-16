@@ -10,5 +10,5 @@ __pycache__/
 venv/
 .env/
 #YOLO
-yolo26m-pose.pt
+src/lerobot_mimic/scripts/yolo26m-pose.pt
 
