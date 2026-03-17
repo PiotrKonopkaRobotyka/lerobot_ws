@@ -28,11 +28,10 @@ from builtin_interfaces.msg import Duration
 # ===========================================================================
 J2_SIGN   = -1      # Zmień na +1 jeśli shoulder idzie w złym kierunku
 J3_SIGN   = -1      # Zmień na +1 jeśli elbow idzie w złym kierunku
-J2_OFFSET = -1.5708      # Dodatkowy offset J2 [rad] - fine-tuning (+/- klawisze)
+J2_OFFSET = -1.5708      # Dodatkowy offset J2 [rad]
 J3_OFFSET = -1.5708      # Dodatkowy offset J3 [rad]
 
 # Home position — bezpieczna poza startowa [rad]
-# J2=-0.5 (bark lekko do przodu), J3=1.0 (łokieć zgięty ~57°)
 HOME_POSITION = [0.0, 0.0, 0.0, 0.0, 0.0]  # [J1, J2, J3, J4, J5]
 
 # ===========================================================================
@@ -54,7 +53,7 @@ J4_LIM = (-1.65,  1.65)   # wrist_flex
 J5_LIM = (-2.74,  2.84)   # wrist_roll
 
 # Fixed joints (nie sterowane przez CV)
-FIXED_J1 = 0.0
+FIXED_J1 = 1.5708 
 FIXED_J4 = 0.0
 FIXED_J5 = 0.0
 
@@ -107,8 +106,6 @@ class SO101MimicNode(Node):
 
         # State
         self._arm_mode       = "RIGHT"
-        self._j2_raw         = 0.0
-        self._j3_raw         = 0.0
         self._j2_smooth      = 0.0
         self._j3_smooth      = 0.0
         self._has_detection  = False
