@@ -1,11 +1,6 @@
 #!/usr/bin/env python3
 """
-SO-101 Pose Mimic Node - CALIBRATED VERSION
-Fixes:
-  ✓ J2/J3 sign correction (image Y-down vs robot Y-up convention)
-  ✓ Proper SO-101 joint limits (not MyCobot limits)
-  ✓ Home position (H key) + manual offset tuning (+/- keys)
-  ✓ EMA smoothing, confidence filter, proper trajectory timing
+SO-101 Pose Mimic Node
 """
 
 import contextlib
@@ -21,7 +16,7 @@ from ultralytics import YOLO
 import rclpy
 from rclpy.node import Node
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
-from builtin_interfaces.msg import Duration
+#from builtin_interfaces.msg import Duration
 
 # ===========================================================================
 # ⚙️  CALIBRATION CONSTANTS — zmień te wartości jeśli ruch jest odwrócony
@@ -39,32 +34,36 @@ HOME_POSITION = [0.0, 0.0, 0.0, 0.0, 0.0]  # [J1, J2, J3, J4, J5]
 # ===========================================================================
 JOINT_NAMES    = ["1", "2", "3", "4", "5"]
 YOLO_MODEL     = "yolo26m-pose.pt"
-CONF_THRESHOLD = 0.5
-MIN_ANGLE_DEG  = 3.0          # Deadband
-CONTROL_HZ     = 10
-TRAJ_TIME_S    = 0.5          # Trajectory execution time
-EMA_ALPHA      = 0.25         # Smoothing (niższy = płynniej, ale wolniej)
+CONF_THRESHOLD = 0.3            # pewność detekcji (0-1)
+MIN_ANGLE_DEG  = 5.0            # deadband — nie wysyłaj jeśli zmiana jest mniejsza niż 3°      
+CONTROL_HZ     = 2             # 2 komend/sek do robota
+TRAJ_TIME_S    = 0.1            # robot ma 0.5s na wykonanie ruchu
+EMA_ALPHA      = 0.3           # wygładzanie (0.1=wolno, 0.5=szybk
 
 # SO-101 JOINT LIMITS [rad] — z URDF / ECE4560
-J1_LIM = (-1.919, 1.919)  # shoulder_pan
-J2_LIM = (-1.74,  1.74)   # shoulder_lift
-J3_LIM = (-1.69,  1.69)   # elbow_flex
-J4_LIM = (-1.65,  1.65)   # wrist_flex
-J5_LIM = (-2.74,  2.84)   # wrist_roll
+J1_LIM = (-1.919, 1.919)  # shoulder_pan / ≈ ±110°
+J2_LIM = (-1.74,  1.74)   # shoulder_lift / # ≈ ±100°
+J3_LIM = (-1.69,  1.69)   # elbow_flex / # ≈ ±97°
+J4_LIM = (-1.65,  1.65)   # wrist_flex / # ≈ ±94°
+J5_LIM = (-2.74,  2.84)   # wrist_roll / # ≈ ±157° (nie jest używany w mimic)
+
+J2_LIM_DEG = (math.degrees(J2_LIM[0]), math.degrees(J2_LIM[1]))
+J3_LIM_DEG = (math.degrees(J3_LIM[0]), math.degrees(J3_LIM[1]))  
 
 # Fixed joints (nie sterowane przez CV)
-FIXED_J1 = 1.5708 
+FIXED_J1 = 0.0 
 FIXED_J4 = 0.0
 FIXED_J5 = 0.0
 
 # YOLO COCO keypoint indices
-KP_L_SHOULDER, KP_R_SHOULDER = 5, 6
-KP_L_ELBOW,    KP_R_ELBOW    = 7, 8
-KP_L_WRIST,    KP_R_WRIST    = 9, 10
+KP_L_SHOULDER  = 5 #używamy do detekcji prawego ramienia, bo obraz jest lustrzany
+#KP_R_SHOULDER = 6
+KP_L_ELBOW = 7  
+#KP_R_ELBOW = 8
+KP_L_WRIST = 9
+#KP_R_WRIST = 10
 
-CAM_W, CAM_H = 854, 480
-OFFSET_STEP  = 0.05   # krok regulacji offsetu [rad] ≈ 2.9°
-
+CAM_W, CAM_H = 854, 480 # rozdzielczość kamery
 
 @contextlib.contextmanager
 def _suppress_stderr():
@@ -81,10 +80,10 @@ def _suppress_stderr():
 class SO101MimicNode(Node):
 
     def __init__(self):
-        super().__init__("so101_mimic")
+        super().__init__("so101_mimic") # nazwa node'a w ROS2
 
         self._pub = self.create_publisher(
-            JointTrajectory, "/arm_controller/joint_trajectory", 10)
+            JointTrajectory, "/arm_controller/joint_trajectory", 10) # ← TOPIC do robota
 
         self.get_logger().info(f"⏳ Loading {YOLO_MODEL}...")
         with _suppress_stderr():
@@ -106,17 +105,13 @@ class SO101MimicNode(Node):
 
         # State
         self._arm_mode       = "RIGHT"
-        self._j2_smooth      = 0.0
-        self._j3_smooth      = 0.0
+        self._j2_smooth      = 0.0 # wygładzona wartość J2 (EMA) 
+        self._j3_smooth      = 0.0 # wygładzona wartość J3 (EMA) 
         self._has_detection  = False
         self._limits_ok      = True
         self._last_good_t    = 0.0
         self._elbow_conf     = 0.0
-        self._current_j3_lim = (math.degrees(J3_LIM[0]), math.degrees(J3_LIM[1]))
-
-        # Mutable calibration offsets (klawiatura)
-        self._j2_offset = J2_OFFSET
-        self._j3_offset = J3_OFFSET
+        self._current_j3_lim = J3_LIM_DEG
 
         # Rate limiting
         self._cmd_interval  = 1.0 / CONTROL_HZ
@@ -128,6 +123,8 @@ class SO101MimicNode(Node):
         # Perf
         self._frame_count = 0
         self._start_t     = time.time()
+        # self.  → bo potrzebne w innych metodach (draw_osd, run)
+        # _      → bo to wewnętrzny detal klasy, nie API
 
         self._print_help()
 
@@ -142,12 +139,8 @@ class SO101MimicNode(Node):
             f"  TrajTime: {TRAJ_TIME_S}s",
             f"  J2_SIGN : {J2_SIGN}   J3_SIGN: {J3_SIGN}",
             "─" * 55,
-            "  R/L   — prawe/lewe ramię",
             "  H     — wyślij do HOME position",
             "  Q     — wyjście",
-            "  ↑/↓   — J2 offset (+/-)",
-            "  ←/→   — J3 offset (+/-)",
-            "═" * 55,
         ]
         for l in lines:
             self.get_logger().info(l)
@@ -158,19 +151,16 @@ class SO101MimicNode(Node):
     def _check_limits(self, j2: float, j3: float) -> bool:
         j2d = math.degrees(j2)
         j3d = math.degrees(j3)
-        j2_lo, j2_hi = math.degrees(J2_LIM[0]), math.degrees(J2_LIM[1])
-        j3_lo, j3_hi = math.degrees(J3_LIM[0]), math.degrees(J3_LIM[1])
 
-        j2_ok = j2_lo <= j2d <= j2_hi
-        j3_ok = j3_lo <= j3d <= j3_hi
-        self._current_j3_lim = (j3_lo, j3_hi)
+        j2_ok = J2_LIM_DEG[0] <= j2d <= J2_LIM_DEG[1]
+        j3_ok = J3_LIM_DEG[0] <= j3d <= J3_LIM_DEG[1]
 
         if not (j2_ok and j3_ok):
             self.get_logger().warn(
-                f"⚠️ LIMIT  J2={j2d:+.1f}° [{j2_lo:.0f},{j2_hi:.0f}]  "
-                f"J3={j3d:+.1f}° [{j3_lo:.0f},{j3_hi:.0f}]"
+                f"⚠️ LIMIT  J2={j2d:+.1f}° {J2_LIM_DEG}  J3={j3d:+.1f}° {J3_LIM_DEG}"
             )
         return j2_ok and j3_ok
+
 
     # =======================================================================
     # EMA filter
@@ -185,15 +175,13 @@ class SO101MimicNode(Node):
     @staticmethod
     def _compute_angles_raw(shoulder, elbow, wrist):
         """
-        Obraz: Y rośnie w DÓŁ.
-        Fizyczny świat: Y rośnie w GÓRĘ.
-        Dlatego negujemy vy przy obliczaniu J2.
+        Oblicz surowe kąty J2 i J3 na podstawie pozycji barku, łokcia i nadgarstka.
         """
-        vx =  elbow[0] - shoulder[0]
-        vy = -(elbow[1] - shoulder[1])  # ← negacja: flip Y (image → world)
+        vx = elbow[0] - shoulder[0]
+        vy = elbow[1] - shoulder[1]
 
         j2 = math.atan2(vy, vx)          # kąt ramienia od poziomej
-        j2 = math.atan2(math.sin(j2), math.cos(j2))
+        j2 = math.atan2(math.sin(j2), math.cos(j2)) # Normalize angle to [-π, π] range
 
         # Elbow angle: kąt między wektorem bark→łokieć a łokieć→nadgarstek
         ax, ay =  (elbow[0] - shoulder[0]),  (shoulder[1] - elbow[1])
@@ -201,19 +189,19 @@ class SO101MimicNode(Node):
         ang1 = math.atan2(ay, ax)
         ang2 = math.atan2(by, bx)
         j3 = ang1 - ang2
-        j3 = math.atan2(math.sin(j3), math.cos(j3))
+        j3 = math.atan2(math.sin(j3), math.cos(j3)) # Normalize angle to [-π, π] range
 
         return j2, j3
 
     # =======================================================================
     # Apply sign correction + offset
     # =======================================================================
-    def _apply_calibration(self, j2_raw: float, j3_raw: float):
-        j2 = J2_SIGN * j2_raw + self._j2_offset
-        j3 = J3_SIGN * j3_raw + self._j3_offset
-        # Normalize to (-π, π)
-        j2 = math.atan2(math.sin(j2), math.cos(j2))
-        j3 = math.atan2(math.sin(j3), math.cos(j3))
+    @staticmethod
+    def _apply_calibration(j2_raw: float, j3_raw: float):
+        j2 = J2_SIGN * j2_raw + J2_OFFSET   # stałe z góry pliku
+        j3 = J3_SIGN * j3_raw + J3_OFFSET
+        j2 = math.atan2(math.sin(j2), math.cos(j2)) # Normalize angle to [-π, π] range
+        j3 = math.atan2(math.sin(j3), math.cos(j3)) # Normalize angle to [-π, π] range
         return j2, j3
 
     # =======================================================================
@@ -278,15 +266,8 @@ class SO101MimicNode(Node):
             cv2.putText(frame, f"Quality {q}%",
                         (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, qc, 2); y += 22
 
-        j3lo, j3hi = self._current_j3_lim
-        cv2.putText(frame, f"J3 lim [{j3lo:.0f},{j3hi:.0f}]",
+        cv2.putText(frame, f"J3 lim [{J3_LIM_DEG[0]:.0f},{J3_LIM_DEG[1]:.0f}]",
                     (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 200, 0), 1); y += 20
-
-        # Offsets (live tuning indicator)
-        cv2.putText(frame,
-            f"OFF J2={math.degrees(self._j2_offset):+.1f} J3={math.degrees(self._j3_offset):+.1f}",
-            (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 255), 1)
-
         # Bottom bar
         mc = (0, 220, 0) if self._arm_mode == "RIGHT" else (0, 220, 220)
         cv2.putText(frame, f"MODE {self._arm_mode}", (10, h - 80),
@@ -340,9 +321,9 @@ class SO101MimicNode(Node):
                     if self._arm_mode == "RIGHT":
                         si, ei, wi = KP_L_SHOULDER, KP_L_ELBOW, KP_L_WRIST
                         arm_color  = (0, 220, 0)
-                    else:
-                        si, ei, wi = KP_R_SHOULDER, KP_R_ELBOW, KP_R_WRIST
-                        arm_color  = (0, 220, 220)
+                    #else:
+                    #    si, ei, wi = KP_R_SHOULDER, KP_R_ELBOW, KP_R_WRIST
+                    #    arm_color  = (0, 220, 220)
 
                     shoulder, elbow, wrist = kpts[si], kpts[ei], kpts[wi]
                     self._elbow_conf = conf[ei] if conf is not None else 1.0
@@ -358,7 +339,6 @@ class SO101MimicNode(Node):
                         j2c, j3c = self._apply_calibration(j2r, j3r)
                         
                         if self._check_limits(j2c, j3c):
-                            self._j2_raw, self._j3_raw = j2r, j3r
                             self._ema(j2c, j3c)
                             self._has_detection = True
                             self._limits_ok = True
@@ -410,26 +390,8 @@ class SO101MimicNode(Node):
             if key == ord('q'):
                 self.get_logger().info("👋 Quitting...")
                 break
-            elif key in (ord('r'), ord('R')):
-                self._arm_mode = "RIGHT"
-                self.get_logger().info("➜ RIGHT ARM mode")
-            elif key in (ord('l'), ord('L')):
-                self._arm_mode = "LEFT"
-                self.get_logger().info("➜ LEFT ARM mode")
             elif key in (ord('h'), ord('H')):
                 self._send_home()
-            elif key == 82:  # UP arrow
-                self._j2_offset += OFFSET_STEP
-                self.get_logger().info(f"⬆ J2_offset = {math.degrees(self._j2_offset):+.1f}°")
-            elif key == 84:  # DOWN arrow
-                self._j2_offset -= OFFSET_STEP
-                self.get_logger().info(f"⬇ J2_offset = {math.degrees(self._j2_offset):+.1f}°")
-            elif key == 83:  # RIGHT arrow
-                self._j3_offset += OFFSET_STEP
-                self.get_logger().info(f"➡ J3_offset = {math.degrees(self._j3_offset):+.1f}°")
-            elif key == 81:  # LEFT arrow
-                self._j3_offset -= OFFSET_STEP
-                self.get_logger().info(f"⬅ J3_offset = {math.degrees(self._j3_offset):+.1f}°")
 
             rclpy.spin_once(self, timeout_sec=0.001)
 
