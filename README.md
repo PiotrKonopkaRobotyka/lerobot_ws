@@ -14,9 +14,8 @@ This workspace builds on top of two key repositories:
   Gazebo simulation setup and `ros2_control` configuration for the SO-101 arm,
   used here as the simulation backbone.
 
----
-
 ## 📦 Workspace Structure
+
     src/
     ├── lerobot_ros/ # ROS 2 ↔ LeRobot bridge (based on ycheng517/lerobot-ros)
     ├── lerobot_sim/ # Gazebo simulation for SO-101 (based on Pavankv92/lerobot_ws)
@@ -31,11 +30,10 @@ of this workspace.
 
 ## 🚀 Projects Inside
 
-
-| `lerobot_ros` | ROS 2 bridge: joint control, teleoperation, MoveIt integration |
-| `lerobot_sim` | Gazebo simulation environment for the SO-101 arm |
-| `lerobot_mimic` | Imitation learning experiments with the SO-101 |
-| `lerobot_candy` | Custom task: robot picking candy using learned policies |
+    | `lerobot_ros` | ROS 2 bridge: joint control, teleoperation, MoveIt integration |
+    | `lerobot_sim` | Gazebo simulation environment for the SO-101 arm |
+    | `lerobot_mimic` | Imitation learning experiments with the SO-101 |
+    | `lerobot_candy` | Custom task: robot picking candy using learned policies |
 
 ## 🛠️ Requirements
 
@@ -46,4 +44,3 @@ of this workspace.
 - LeRobot (Hugging Face)
 
 ## 📬 Feel free to explore, fork, and reach out!
-
