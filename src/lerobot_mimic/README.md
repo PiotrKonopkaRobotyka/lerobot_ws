@@ -21,8 +21,6 @@ Webcam → YOLOv26 Pose → Keypoint Extraction
 
 Only **J2** and **J3** are driven by pose estimation. Others are fixed:
 
-    | Joint | Name | Control | Value |
-    |---|---|---|---|
     | J1 | `shoulder_pan` | Fixed | `0.0 rad` |
     | J2 | `shoulder_lift` | **CV-driven** | From pose ±100° |
     | J3 | `elbow_flex` | **CV-driven** | From pose ±90° |
@@ -33,8 +31,7 @@ Only **J2** and **J3** are driven by pose estimation. Others are fixed:
 
 ## 🖥️ OSD Overlay (Camera Window)
 
-    | Element | Meaning |
-    |---|---|
+
     | 🟢 `ACTIVE` | Tracking pose, angles within limits |
     | 🔴 `UNSAFE` | Pose detected but joint limit exceeded |
     | 🟡 `SEARCH` | No person detected |
@@ -48,9 +45,7 @@ Only **J2** and **J3** are driven by pose estimation. Others are fixed:
 
 ## 🎮 Keyboard Controls
 
-    | Key | Action |
-    |---|---|
-    | `H` | Send robot to **home position** (all joints = 0°, 2s move) |
+    | `H` | Send robot to home position |
     | `Q` | Quit the node cleanly |
 
 ---
