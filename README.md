@@ -5,14 +5,14 @@ A ROS 2 workspace for experimenting with the **SO-101** robotic arm using the
 
 This workspace builds on top of two key repositories:
 
-- 🔧 **[lerobot-ros](https://github.com/ycheng517/lerobot-ros)** — a generic
+- 🔧 **[lerobot_ros (ycheng517 lerobot-ros)](https://github.com/ycheng517/lerobot-ros)** — a generic
   ROS 2 interface that connects any `ros2_control` / MoveIt-compatible robot arm
   with the LeRobot framework. Provides joint-position control, end-effector
   velocity control via MoveIt Servo, and teleoperator devices (keyboard & gamepad).
 
-- 🏗️ **[lerobot_ws (Pavankv92)](https://github.com/Pavankv92/lerobot_ws)** —
-  Gazebo simulation setup and `ros2_control` configuration for the SO-101 arm,
-  used here as the simulation backbone.
+- 🏗️ **[lerobot_sim (Pavankv92 lerobot_ws)](https://github.com/Pavankv92/lerobot_ws)** —
+    a Gazebo simulation environment for the SO-101 arm, including a custom URDF model,
+    MoveIt configuration, and ROS 2 control setup.
 
 ## 📦 Workspace Structure
 
