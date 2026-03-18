@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
 """
-SO-101 Pose Mimic Node
+SO-101 Pose Mimic Node 
+
 """
 
-import contextlib
-import os
-import cv2
-import math
-import numpy as np
-import time
-import sys
+import contextlib # do cichego łapania błędów przy ładowaniu modelu YOLO (który jest głośny)
+import os # do przekierowania stderr do /dev/null
+import cv2 # OpenCV do obsługi kamery i rysowania OSD
+import math # do obliczeń kątów i konwersji radianów/stopni
+import numpy as np # do operacji na tablicach (np. sprawdzanie NaN)
+import time # do pomiaru czasu i FPS
+import sys # do obsługi błędów krytycznych (np. brak kamery)
 
-from ultralytics import YOLO
+from ultralytics import YOLO # do detekcji kluczowych punktów ciała
 
 import rclpy
 from rclpy.node import Node
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
-#from builtin_interfaces.msg import Duration
+
 
 # ===========================================================================
 # ⚙️  CALIBRATION CONSTANTS — zmień te wartości jeśli ruch jest odwrócony
@@ -34,16 +35,16 @@ HOME_POSITION = [0.0, 0.0, 0.0, 0.0, 0.0]  # [J1, J2, J3, J4, J5]
 # ===========================================================================
 JOINT_NAMES    = ["1", "2", "3", "4", "5"]
 YOLO_MODEL     = "yolo26m-pose.pt"
-CONF_THRESHOLD = 0.3            # pewność detekcji (0-1)
-MIN_ANGLE_DEG  = 5.0            # deadband — nie wysyłaj jeśli zmiana jest mniejsza niż 3°      
-CONTROL_HZ     = 2             # 2 komend/sek do robota
-TRAJ_TIME_S    = 0.1            # robot ma 0.5s na wykonanie ruchu
-EMA_ALPHA      = 0.3           # wygładzanie (0.1=wolno, 0.5=szybk
+CONF_THRESHOLD = 0.3           # pewność detekcji (0-1)
+MIN_ANGLE_DEG  = 2.0           # deadband — nie wysyłaj jeśli zmiana jest mniejsza niż 3°      
+CONTROL_HZ     = 10             # 2 komend/sek do robota
+TRAJ_TIME_S    = 0.08           # robot ma 0.1s na wykonanie ruchu
+EMA_ALPHA      = 0.5          # wygładzanie (0.1=wolno, 0.5=szybko)
 
 # SO-101 JOINT LIMITS [rad] — z URDF / ECE4560
 J1_LIM = (-1.919, 1.919)  # shoulder_pan / ≈ ±110°
 J2_LIM = (-1.74,  1.74)   # shoulder_lift / # ≈ ±100°
-J3_LIM = (-1.69,  1.69)   # elbow_flex / # ≈ ±97°
+J3_LIM = (-1.5708,  1.5708)   # elbow_flex / # ≈ ±90°
 J4_LIM = (-1.65,  1.65)   # wrist_flex / # ≈ ±94°
 J5_LIM = (-2.74,  2.84)   # wrist_roll / # ≈ ±157° (nie jest używany w mimic)
 
@@ -149,13 +150,13 @@ class SO101MimicNode(Node):
     # Safety limits — SO-101 specific
     # =======================================================================
     def _check_limits(self, j2: float, j3: float) -> bool:
-        j2d = math.degrees(j2)
+        j2d = math.degrees(j2) # konwersja na stopnie dla czytelności logów
         j3d = math.degrees(j3)
 
-        j2_ok = J2_LIM_DEG[0] <= j2d <= J2_LIM_DEG[1]
-        j3_ok = J3_LIM_DEG[0] <= j3d <= J3_LIM_DEG[1]
+        j2_ok = J2_LIM_DEG[0] <= j2d <= J2_LIM_DEG[1] # sprawdzamy limity dla J2
+        j3_ok = J3_LIM_DEG[0] <= j3d <= J3_LIM_DEG[1] # sprawdzamy limity dla J3
 
-        if not (j2_ok and j3_ok):
+        if not (j2_ok and j3_ok): # jeśli któryś z kątów jest poza limitem, logujemy ostrzeżenie
             self.get_logger().warn(
                 f"⚠️ LIMIT  J2={j2d:+.1f}° {J2_LIM_DEG}  J3={j3d:+.1f}° {J3_LIM_DEG}"
             )
@@ -166,7 +167,7 @@ class SO101MimicNode(Node):
     # EMA filter
     # =======================================================================
     def _ema(self, j2_new: float, j3_new: float):
-        self._j2_smooth = EMA_ALPHA * j2_new + (1 - EMA_ALPHA) * self._j2_smooth
+        self._j2_smooth = EMA_ALPHA * j2_new + (1 - EMA_ALPHA) * self._j2_smooth # aktualizacja wygładzonych wartości J2 i J3 za pomocą formuły EMA
         self._j3_smooth = EMA_ALPHA * j3_new + (1 - EMA_ALPHA) * self._j3_smooth
 
     # =======================================================================
@@ -261,8 +262,8 @@ class SO101MimicNode(Node):
             cv2.putText(frame, f"J2={j2d:+5.1f}  J3={j3d:+5.1f}",
                         (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, col, 2); y += 25
 
-            q = int(self._elbow_conf * 100)
-            qc = (0, 200, 0) if q >= 70 else (0, 140, 255)
+            q = int(self._elbow_conf * 100)    # jakość detekcji łokcia w procentach
+            qc = (0, 200, 0) if q >= 70 else (0, 140, 255) # zielony powyżej 70%, pomarańczowy poniżej
             cv2.putText(frame, f"Quality {q}%",
                         (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, qc, 2); y += 22
 
